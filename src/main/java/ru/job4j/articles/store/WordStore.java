@@ -4,22 +4,20 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import ru.job4j.articles.model.Word;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.util.ArrayList;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Properties;
 
 public class WordStore implements Store<Word>, AutoCloseable {
-
     private static final Logger LOGGER = LoggerFactory.getLogger(WordStore.class.getSimpleName());
-
     private final Properties properties;
-
     private Connection connection;
 
     public WordStore(Properties properties) {
@@ -46,9 +44,14 @@ public class WordStore implements Store<Word>, AutoCloseable {
     private void initScheme() {
         LOGGER.info("Создание схемы таблицы слов");
         try (var statement = connection.createStatement()) {
-            var sql = Files.readString(Path.of("db/scripts", "dictionary.sql"));
+            String sql = null;
+            try {
+                sql = Files.readString(Path.of("db/scripts", "dictionary.sql"));
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
             statement.execute(sql);
-        } catch (Exception e) {
+        } catch (SQLException e) {
             LOGGER.error("Не удалось выполнить операцию: { }", e.getCause());
             throw new IllegalStateException();
         }
@@ -57,9 +60,14 @@ public class WordStore implements Store<Word>, AutoCloseable {
     private void initWords() {
         LOGGER.info("Заполнение таблицы слов");
         try (var statement = connection.createStatement()) {
-            var sql = Files.readString(Path.of("db/scripts", "words.sql"));
+            String sql = null;
+            try {
+                sql = Files.readString(Path.of("db/scripts", "words.sql"));
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
             statement.executeLargeUpdate(sql);
-        } catch (Exception e) {
+        } catch (SQLException e) {
             LOGGER.error("Не удалось выполнить операцию: { }", e.getCause());
             throw new IllegalStateException();
         }
@@ -69,14 +77,15 @@ public class WordStore implements Store<Word>, AutoCloseable {
     public Word save(Word model) {
         LOGGER.info("Добавление слова в базу данных");
         var sql = "insert into dictionary(word) values(?);";
-        try (var statement = connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+        try (var statement = connection
+                .prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
             statement.setString(1, model.getValue());
             statement.executeUpdate();
             var key = statement.getGeneratedKeys();
             if (key.next()) {
                 model.setId(key.getInt(1));
             }
-        } catch (Exception e) {
+        } catch (SQLException e) {
             LOGGER.error("Не удалось выполнить операцию: { }", e.getCause());
             throw new IllegalStateException();
         }
@@ -87,7 +96,7 @@ public class WordStore implements Store<Word>, AutoCloseable {
     public List<Word> findAll() {
         LOGGER.info("Загрузка всех слов");
         var sql = "select * from dictionary";
-        var words = new ArrayList<Word>();
+        var words = new LinkedList<Word>();
         try (var statement = connection.prepareStatement(sql)) {
             var selection = statement.executeQuery();
             while (selection.next()) {
@@ -96,7 +105,7 @@ public class WordStore implements Store<Word>, AutoCloseable {
                         selection.getString("word")
                 ));
             }
-        } catch (Exception e) {
+        } catch (SQLException e) {
             LOGGER.error("Не удалось выполнить операцию: { }", e.getCause());
             throw new IllegalStateException();
         }
@@ -104,10 +113,9 @@ public class WordStore implements Store<Word>, AutoCloseable {
     }
 
     @Override
-    public void close() throws Exception {
+    public void close() throws SQLException {
         if (connection != null) {
             connection.close();
         }
     }
-
 }

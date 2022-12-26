@@ -4,22 +4,20 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import ru.job4j.articles.model.Article;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.util.ArrayList;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Properties;
 
 public class ArticleStore implements Store<Article>, AutoCloseable {
-
     private static final Logger LOGGER = LoggerFactory.getLogger(ArticleStore.class.getSimpleName());
-
     private final Properties properties;
-
     private Connection connection;
 
     public ArticleStore(Properties properties) {
@@ -45,9 +43,14 @@ public class ArticleStore implements Store<Article>, AutoCloseable {
     private void initScheme() {
         LOGGER.info("Инициализация таблицы статей");
         try (var statement = connection.createStatement()) {
-            var sql = Files.readString(Path.of("db/scripts", "articles.sql"));
+            String sql = null;
+            try {
+                sql = Files.readString(Path.of("db/scripts", "articles.sql"));
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
             statement.execute(sql);
-        } catch (Exception e) {
+        } catch (SQLException e) {
             LOGGER.error("Не удалось выполнить операцию: { }", e.getCause());
             throw new IllegalStateException();
         }
@@ -57,14 +60,15 @@ public class ArticleStore implements Store<Article>, AutoCloseable {
     public Article save(Article model) {
         LOGGER.info("Сохранение статьи");
         var sql = "insert into articles(text) values(?)";
-        try (var statement = connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+        try (var statement = connection
+                .prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
             statement.setString(1, model.getText());
             statement.executeUpdate();
             var key = statement.getGeneratedKeys();
             while (key.next()) {
                 model.setId(key.getInt(1));
             }
-        } catch (Exception e) {
+        } catch (SQLException e) {
             LOGGER.error("Не удалось выполнить операцию: { }", e.getCause());
             throw new IllegalStateException();
         }
@@ -75,7 +79,7 @@ public class ArticleStore implements Store<Article>, AutoCloseable {
     public List<Article> findAll() {
         LOGGER.info("Загрузка всех статей");
         var sql = "select * from articles";
-        var articles = new ArrayList<Article>();
+        var articles = new LinkedList<Article>();
         try (var statement = connection.prepareStatement(sql)) {
             var selection = statement.executeQuery();
             while (selection.next()) {
@@ -92,7 +96,7 @@ public class ArticleStore implements Store<Article>, AutoCloseable {
     }
 
     @Override
-    public void close() throws Exception {
+    public void close() throws SQLException {
         if (connection != null) {
             connection.close();
         }
